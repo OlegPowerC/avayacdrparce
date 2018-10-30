@@ -81,9 +81,9 @@ func handle(conn net.Conn) error {
 		vtems := scanr.Text()
 
 		var vtemp string
-		if len(vtems) >= 92{
-			if len(vtems) > 92{
-				vtemp = vtems[len(vtems)-92:]
+		if len(vtems) >= 93{
+			if len(vtems) > 93{
+				vtemp = vtems[len(vtems)-93:]
 			}else{
 				vtemp = vtems
 			}
@@ -101,7 +101,7 @@ func handle(conn net.Conn) error {
 			fr1.called_number = strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])
 			udt := fr1.dtime.Unix()
 			sut := strconv.FormatInt(udt,10)
-			qstr := "INSERT INTO powerccdr(tm,duration,called,calling) VALUES (FROM_UNIXTIME("+ sut +"),"+ strconv.Itoa(fr1.duration)+",\""+fr1.calling_number+"\",\""+fr1.called_number+"\")"
+			qstr := "INSERT INTO powerccdr(tm,duration,called,calling) VALUES (FROM_UNIXTIME("+ sut +"),"+ strconv.Itoa(fr1.duration)+",\""+fr1.called_number+"\",\""+fr1.calling_number+"\")"
 
 			insert, err := db.Query(qstr)
 
@@ -136,7 +136,7 @@ func (srv Server) ListenAndServe() error{
 			log.Printf("error accepting connection %v", err)
 			continue
 		}
-		log.Printf("accepted connection from %v", conn.RemoteAddr())
+		log.Printf("PowerCCDR accepted connection from %v", conn.RemoteAddr())
 		handle(conn) //TODO: Implement me
 	}
 }
@@ -156,7 +156,7 @@ func main() {
 		panic(errsql.Error())
 	}
 	defer db.Close()
-	recoffset = CDR_Record_offsett{0,11,12,16,17,32,33,56}
+	recoffset = CDR_Record_offsett{0,11,12,17,18,33,34,57}
 	fmt.Println("STARTED CDR Server")
 	s1 := Server{":5001"}
 	s1.ListenAndServe()
