@@ -2,19 +2,22 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"bufio"
 	"time"
 	"strings"
 	"strconv"
-_ "github.com/go-sql-driver/mysql"
-
+	_ "github.com/go-sql-driver/mysql"
 	"database/sql"
-	"flag"
+	"os"
+	"os/signal"
+	"io/ioutil"
+	"encoding/json"
+	"os/exec"
 )
 
 const longForm = "010206 1504 MST"
+const AvayaMsgLen = 93
 
 type Server struct {
 	Addr string
@@ -61,9 +64,10 @@ called_number_end int
 func handle(conn net.Conn) error {
 
 	defer func() {
-		log.Printf("closing connection from %v", conn.RemoteAddr())
+		fmt.Println("Закрыто соединение:", conn.RemoteAddr())
 		conn.Close()
 	}()
+
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
 	scanr := bufio.NewScanner(r)
@@ -72,7 +76,7 @@ func handle(conn net.Conn) error {
 		scanned := scanr.Scan()
 		if !scanned {
 			if err := scanr.Err(); err != nil {
-				log.Printf("%v(%v)", err, conn.RemoteAddr())
+				fmt.Println(err, conn.RemoteAddr())
 				return err
 			}
 			break
@@ -81,13 +85,13 @@ func handle(conn net.Conn) error {
 		vtems := scanr.Text()
 
 		var vtemp string
-		if len(vtems) >= 93{
-			if len(vtems) > 93{
-				vtemp = vtems[len(vtems)-93:]
+		if len(vtems) >= AvayaMsgLen{
+			if len(vtems) > AvayaMsgLen{
+				vtemp = vtems[len(vtems)-AvayaMsgLen:]
 			}else{
 				vtemp = vtems
 			}
-			if *debuggmode == "1"{
+			if ldebuggmode > 0 {
 				fmt.Println(vtems)
 			}
 			var fr1 CDR_Record_1
@@ -101,17 +105,13 @@ func handle(conn net.Conn) error {
 			fr1.called_number = strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])
 			udt := fr1.dtime.Unix()
 			sut := strconv.FormatInt(udt,10)
-			qstr := "INSERT INTO powerccdr(tm,duration,called,calling) VALUES (FROM_UNIXTIME("+ sut +"),"+ strconv.Itoa(fr1.duration)+",\""+fr1.called_number+"\",\""+fr1.calling_number+"\")"
-
-			insert, err := db.Query(qstr)
-
-
+			qstr := fmt.Sprintf("INSERT INTO powerccdr(tm,duration,called,calling) VALUES (FROM_UNIXTIME(%s),%s,\"%s\",\"%s\")",sut,strconv.Itoa(fr1.duration),fr1.called_number,fr1.calling_number)
+			//insert, err := db.Query(qstr)
+			_, err := db.Exec(qstr)
 			if err != nil {
+				fmt.Println("Ошибка запроса INSERT:",err)
 				panic(err.Error())
 			}
-
-			defer insert.Close()
-
 		}
 		w.Flush()
 	}
@@ -123,41 +123,103 @@ func (srv Server) ListenAndServe() error{
 	if addr == ""{
 		addr = ":5001"
 	}
-	log.Printf("starting server on %v\n", addr)
+	fmt.Println("Запущен сервис на:", addr)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Ошибка:",err)
 		return err
 	}
 	defer listener.Close()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("error accepting connection %v", err)
+			fmt.Println("Ошибка подключения:", err)
 			continue
 		}
-		log.Printf("PowerCCDR accepted connection from %v", conn.RemoteAddr())
-		handle(conn) //TODO: Implement me
+		fmt.Println("PowerCCDR подключение:", conn.RemoteAddr())
+		handle(conn)
 	}
 }
+
+//Описание JSON параметров для работы с базой данных
+type params struct {
+	Databasename string `json:"dbname"`
+	Databaseuser string `json:"dbuser"`
+	Callstable string `json:"calltable"`
+	Databaseurl string `json:"dburl"`
+	Debuggmode int `json:"debugmode"`
+}
+
 var recoffset CDR_Record_offsett
-var debuggmode * string
 var db *sql.DB
 var errsql error
-func main() {
-	debuggmode = flag.String("d","0","1 for debugg")
-	sqluser := flag.String("u","powerccdr","username for SQL")
-	sqlpassword := flag.String("p","test","password for SQL")
-	sqldbname := flag.String("n","powerccdr","Database name")
-	flag.Parse()
+var ldebuggmode int
 
-	db,errsql = sql.Open("mysql",*sqluser+":"+*sqlpassword+"@tcp(127.0.0.1:3306)/"+*sqldbname)
+const JsonFileName = "params.json"
+func main() {
+	var JParams params
+	// Открываем файл с настройками
+	jSettingsFile, err := os.Open(JsonFileName)
+	// Проверяем на ошибки
+	if err != nil {
+		fmt.Println("Ошибка:",err)
+	}
+	defer jSettingsFile.Close()
+
+	FData, err := ioutil.ReadAll(jSettingsFile)
+	if err != nil {
+		fmt.Println("Ошибка:",err)
+	}
+
+	json.Unmarshal(FData,&JParams)
+	ldebuggmode = JParams.Debuggmode
+
+	fmt.Println("Режим отладки:",strconv.Itoa(JParams.Debuggmode))
+
+	//Получение пароля из KeyRing посредством запуска Python скрипта
+
+
+	databasepasswordby,err := exec.Command("./getuser.py","-u"+JParams.Databaseuser,"-k"+JParams.Databasename).Output()
+	if err != nil{
+		fmt.Println("Ошибка получения пароля для пользователя "+JParams.Databaseuser+" из KeyRing")
+		os.Exit(1)
+	}
+	databasepassword := strings.TrimSpace(string(databasepasswordby))
+
+	if databasepassword == "" {
+		fmt.Println("Ошибка получения пароля для пользователя "+JParams.Databaseuser+" из KeyRing "+JParams.Databasename)
+		os.Exit(1)
+	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs)
+	//Афтономная функция для обработки сигналов ОС
+	go func() {
+		s := <- sigs
+		fmt.Println("Принят сигнал ОС:",s)
+		db.Close();
+		os.Exit(1)
+	}()
+
+	//Создаем строку для соединения с базой данных
+	DsToLog := fmt.Sprintf("%s@tcp(%s)/%s",JParams.Databaseuser,JParams.Databaseurl,JParams.Databasename)
+	DsStr := fmt.Sprintf("%s:%s@tcp(%s)/%s",JParams.Databaseuser,databasepassword,JParams.Databaseurl,JParams.Databasename)
+	fmt.Println("Попытка соединения с базой данных:", DsToLog)
+
+	db,errsql = sql.Open("mysql",DsStr)
 	if errsql != nil {
+		fmt.Println("Ошибка:",errsql)
 		panic(errsql.Error())
 	}
 	defer db.Close()
+
+	err = db.Ping()
+	if err != nil{
+		fmt.Println("Ошибка:",err)
+		panic(errsql.Error())
+	}
 	recoffset = CDR_Record_offsett{0,11,12,17,18,33,34,57}
-	fmt.Println("STARTED CDR Server")
+	fmt.Println("Старт CDR сервиса")
 	s1 := Server{":5001"}
 	s1.ListenAndServe()
 }
