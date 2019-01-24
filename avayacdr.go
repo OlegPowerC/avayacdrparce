@@ -14,6 +14,10 @@ import (
 	"io/ioutil"
 	"encoding/json"
 	"os/exec"
+	"net/url"
+	"net/http"
+	"crypto/tls"
+	"regexp"
 )
 
 const longForm = "010206 1504 MST"
@@ -61,6 +65,61 @@ called_number_start int
 called_number_end int
 }
 
+func sendsms(number string, extension string, calltime string, companyname string) {
+	if len(number) > 10{
+		if ldebuggmode > 0{
+			fmt.Println("SENDSMS function: number is " + number)
+		}
+		trx := number[len(number)-10:]
+		if ldebuggmode > 0{
+			fmt.Println("Cutednumberis " + trx)
+		}
+		var pNum, pName string
+		SelectString := fmt.Sprintf("SELECT phone,name from smsto WHERE phone=\"7%s\" AND sendsms=1;", trx)
+		Qres := db.QueryRow(SelectString)
+		if ldebuggmode > 0{
+			fmt.Println("SQL string is " + SelectString)
+		}
+		Errs := Qres.Scan(&pNum, &pName)
+		if Errs == sql.ErrNoRows {
+			if ldebuggmode > 0{
+				fmt.Println("No data selected")
+			}
+			return
+		} else if Errs != nil {
+			if ldebuggmode > 0{
+				fmt.Println("Error")
+			}
+			return
+		}
+		SMSText := fmt.Sprintf("Уважаемый(ая) %s, в %s вам поступил вызов от абонента %s, с внутренним номером %s", pName, calltime, companyname, extension)
+		if ldebuggmode > 0{
+			fmt.Println(SMSText)
+			fmt.Println(pNum,pName)
+		}
+		a31 := url.Values{}
+		a31.Set("phone",pNum)
+		a31.Set("mpname",SMSText)
+		tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+		client := &http.Client{Transport: tr}
+		reqpr, _ := http.NewRequest("POST",SMSurl,strings.NewReader(a31.Encode()))
+		reqpr.Header.Add("Content-Type","application/x-www-form-urlencoded")
+		_, errpr := client.Do(reqpr)
+		if errpr != nil{
+			if ldebuggmode > 0{
+				fmt.Println("DoRequest err")
+			}
+		}else{
+			fmt.Println("Посылка SMS уведамления для ",pName,"на номер",pNum)
+		}
+	}
+}
+
+func IsNumber (teststring string) bool{
+	re :=regexp.MustCompile(`^([0-9]+){3,}#?$`)
+	return re.Match([]byte(strings.TrimSpace(teststring)))
+}
+
 func handle(conn net.Conn) error {
 
 	defer func() {
@@ -85,32 +144,41 @@ func handle(conn net.Conn) error {
 		vtems := scanr.Text()
 
 		var vtemp string
-		if len(vtems) >= AvayaMsgLen{
-			if len(vtems) > AvayaMsgLen{
-				vtemp = vtems[len(vtems)-AvayaMsgLen:]
-			}else{
-				vtemp = vtems
-			}
-			if ldebuggmode > 0 {
-				fmt.Println(vtems)
-			}
-			var fr1 CDR_Record_1
+		if len(vtems) >= AvayaMsgLen {
+			//if  IsNumber(vtemp[recoffset.calling_number_start:recoffset.calling_number_end]) && IsNumber(vtemp[recoffset.called_number_start:recoffset.called_number_end]) {
+				if len(vtems) > AvayaMsgLen {
+					vtemp = vtems[len(vtems)-AvayaMsgLen:]
+				} else {
+					vtemp = vtems
+				}
+			if  IsNumber(vtemp[recoffset.calling_number_start:recoffset.calling_number_end]) && IsNumber(vtemp[recoffset.called_number_start:recoffset.called_number_end]) {
+				if ldebuggmode > 0 {
+					fmt.Println(vtems)
+				}
+				var fr1 CDR_Record_1
 
-			strdatef := vtemp[recoffset.dtime_start:recoffset.dtime_end]+" MSK"
+				strdatef := vtemp[recoffset.dtime_start:recoffset.dtime_end] + " MSK"
 
-			datetimed,_ := time.Parse(longForm,strdatef)
-			fr1.dtime = datetimed
-			fr1.duration,_ = strconv.Atoi(strings.TrimSpace(vtemp[recoffset.duration_start:recoffset.duration_end]))
-			fr1.calling_number = strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])
-			fr1.called_number = strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])
-			udt := fr1.dtime.Unix()
-			sut := strconv.FormatInt(udt,10)
-			qstr := fmt.Sprintf("INSERT INTO powerccdr(tm,duration,called,calling) VALUES (FROM_UNIXTIME(%s),%s,\"%s\",\"%s\")",sut,strconv.Itoa(fr1.duration),fr1.called_number,fr1.calling_number)
-			//insert, err := db.Query(qstr)
-			_, err := db.Exec(qstr)
-			if err != nil {
-				fmt.Println("Ошибка запроса INSERT:",err)
-				panic(err.Error())
+				datetimed, _ := time.Parse(longForm, strdatef)
+				fr1.dtime = datetimed
+				fr1.duration, _ = strconv.Atoi(strings.TrimSpace(vtemp[recoffset.duration_start:recoffset.duration_end]))
+				fr1.calling_number = strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])
+				fr1.called_number = strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])
+				udt := fr1.dtime.Unix()
+				sut := strconv.FormatInt(udt, 10)
+				qstr := fmt.Sprintf("INSERT INTO powerccdr(tm,duration,called,calling) VALUES (FROM_UNIXTIME(%s),%s,\"%s\",\"%s\")", sut, strconv.Itoa(fr1.duration), fr1.called_number, fr1.calling_number)
+				//insert, err := db.Query(qstr)
+				_, err := db.Exec(qstr)
+				if err != nil {
+					fmt.Println("Ошибка запроса INSERT:", err)
+					panic(err.Error())
+				}
+				DateStr := fmt.Sprintf("%s-%s-%s %sч. %sмин.", vtemp[recoffset.dtime_start:recoffset.dtime_start+2],
+					vtemp[recoffset.dtime_start+2:recoffset.dtime_start+4],
+					vtemp[recoffset.dtime_start+4:recoffset.dtime_start+6],
+					vtemp[recoffset.dtime_start+7:recoffset.dtime_start+9],
+					vtemp[recoffset.dtime_start+9:recoffset.dtime_start+11])
+				go sendsms(fr1.called_number, fr1.calling_number, DateStr, comname)
 			}
 		}
 		w.Flush()
@@ -148,12 +216,16 @@ type params struct {
 	Callstable string `json:"calltable"`
 	Databaseurl string `json:"dburl"`
 	Debuggmode int `json:"debugmode"`
+	Sendsmsurl string `json:"smsurl"`
+	Companyname string `json:"company"`
 }
 
 var recoffset CDR_Record_offsett
 var db *sql.DB
 var errsql error
 var ldebuggmode int
+var comname string
+var SMSurl string
 
 const JsonFileName = "params.json"
 func main() {
@@ -173,12 +245,12 @@ func main() {
 
 	json.Unmarshal(FData,&JParams)
 	ldebuggmode = JParams.Debuggmode
+	comname = JParams.Companyname
+	SMSurl = JParams.Sendsmsurl
 
 	fmt.Println("Режим отладки:",strconv.Itoa(JParams.Debuggmode))
 
 	//Получение пароля из KeyRing посредством запуска Python скрипта
-
-
 	databasepasswordby,err := exec.Command("./getuser.py","-u"+JParams.Databaseuser,"-k"+JParams.Databasename).Output()
 	if err != nil{
 		fmt.Println("Ошибка получения пароля для пользователя "+JParams.Databaseuser+" из KeyRing")
