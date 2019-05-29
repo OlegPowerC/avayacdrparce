@@ -21,7 +21,7 @@ import (
 )
 
 const longForm = "010206 1504 MST"
-const AvayaMsgLen = 93
+const AvayaMsgLen = 95
 
 type Server struct {
 	Addr string
@@ -52,17 +52,20 @@ type CDR_Record_1 struct{
 	calling_number string
 	called_number string
 	duration int
+	condition_code string
 }
 
 type CDR_Record_offsett struct{
-dtime_start int
-dtime_end int
-duration_start int
-duration_end int
-calling_number_start int
-calling_number_end int
-called_number_start int
-called_number_end int
+	dtime_start int
+	dtime_end int
+	duration_start int
+	duration_end int
+	calling_number_start int
+	calling_number_end int
+	called_number_start int
+	called_number_end int
+	condition_code_start	int
+	condition_code_end		int
 }
 
 func sendsms(number string, extension string, calltime string, companyname string) {
@@ -146,11 +149,11 @@ func handle(conn net.Conn) error {
 		var vtemp string
 		if len(vtems) >= AvayaMsgLen {
 			//if  IsNumber(vtemp[recoffset.calling_number_start:recoffset.calling_number_end]) && IsNumber(vtemp[recoffset.called_number_start:recoffset.called_number_end]) {
-				if len(vtems) > AvayaMsgLen {
-					vtemp = vtems[len(vtems)-AvayaMsgLen:]
-				} else {
-					vtemp = vtems
-				}
+			if len(vtems) > AvayaMsgLen {
+				vtemp = vtems[len(vtems)-AvayaMsgLen:]
+			} else {
+				vtemp = vtems
+			}
 			if  IsNumber(vtemp[recoffset.calling_number_start:recoffset.calling_number_end]) && IsNumber(vtemp[recoffset.called_number_start:recoffset.called_number_end]) {
 				if ldebuggmode > 0 {
 					fmt.Println(vtems)
@@ -164,9 +167,16 @@ func handle(conn net.Conn) error {
 				fr1.duration, _ = strconv.Atoi(strings.TrimSpace(vtemp[recoffset.duration_start:recoffset.duration_end]))
 				fr1.calling_number = strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])
 				fr1.called_number = strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])
+				fr1.condition_code = strings.TrimSpace(vtemp[recoffset.condition_code_start:recoffset.condition_code_end])
+
+				if ldebuggmode > 0 {
+					fmt.Println("Condition code:",fr1.condition_code)
+					fmt.Println("Test slice",vtemp[93:94])
+				}
+
 				udt := fr1.dtime.Unix()
 				sut := strconv.FormatInt(udt, 10)
-				qstr := fmt.Sprintf("INSERT INTO powerccdr(tm,duration,called,calling) VALUES (FROM_UNIXTIME(%s),%s,\"%s\",\"%s\")", sut, strconv.Itoa(fr1.duration), fr1.called_number, fr1.calling_number)
+				qstr := fmt.Sprintf("INSERT INTO powerccdr(tm,duration,called,calling,cond) VALUES (FROM_UNIXTIME(%s),%s,\"%s\",\"%s\",\"%s\")", sut, strconv.Itoa(fr1.duration), fr1.called_number, fr1.calling_number, fr1.condition_code)
 				//insert, err := db.Query(qstr)
 				_, err := db.Exec(qstr)
 				if err != nil {
@@ -290,7 +300,7 @@ func main() {
 		fmt.Println("Ошибка:",err)
 		panic(errsql.Error())
 	}
-	recoffset = CDR_Record_offsett{0,11,12,17,18,33,34,57}
+	recoffset = CDR_Record_offsett{0,11,12,17,18,33,34,57,93,94}
 	fmt.Println("Старт CDR сервиса")
 	s1 := Server{":5001"}
 	s1.ListenAndServe()
