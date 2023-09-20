@@ -1,4 +1,4 @@
-#!/opt/pyenvs/1/bin/python3
+#!/usr/bin/env python3
 import keyring
 import argparse
 
