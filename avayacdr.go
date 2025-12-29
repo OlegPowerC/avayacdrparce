@@ -284,7 +284,6 @@ func (srv *Server) ListenAndServe(ctx context.Context) error {
 type params struct {
 	Databasename     string `json:"dbname"`
 	Databaseuser     string `json:"dbuser"`
-	Callstable       string `json:"calltable"`
 	Databaseurl      string `json:"dburl"`
 	Debuggmode       int    `json:"debugmode"`
 	Sendsmsurl       string `json:"smsurl"`

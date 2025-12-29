@@ -1,0 +1,16 @@
+[Unit]
+Description=AvayaCDR
+After=network.target
+After=mysql.service
+
+[Service]
+Type=notify
+User=avayacdr
+Group=avayacdr
+WorkingDirectory=/opt/avayacdr
+ExecStart=/opt/avayacdr/avayacdr
+Restart=always
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
