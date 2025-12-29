@@ -79,12 +79,9 @@ func sendsms(number string, extension string, calltime string, companyname strin
 			fmt.Println("Cutednumberis " + trx)
 		}
 		var pNum, pName string
-		SelectString := fmt.Sprintf("SELECT phone,name from smsto WHERE phone=\"7%s\" AND sendsms=1;", trx)
-		Qres := db.QueryRow(SelectString)
-		if ldebuggmode > 0 {
-			fmt.Println("SQL string is " + SelectString)
-		}
-		Errs := Qres.Scan(&pNum, &pName)
+
+		Errs := db.QueryRow("SELECT phone,name from smsto WHERE phone=? AND sendsms=1;", "7"+trx).Scan(&pNum, &pName)
+
 		if Errs == sql.ErrNoRows {
 			if ldebuggmode > 0 {
 				fmt.Println("No data selected")
@@ -168,11 +165,13 @@ func handle(conn net.Conn) error {
 				strdatef := vtemp[recoffset.dtime_start:recoffset.dtime_end]
 
 				datetimed, parseerr := time.ParseInLocation(AvayaDateFormat, strdatef, Timelocation)
-				if ldebuggmode > 0 && parseerr != nil {
+				if parseerr != nil {
 					fmt.Println(parseerr)
+					fr1.dtime = time.Now().In(Timelocation)
+				} else {
+					fr1.dtime = datetimed
 				}
 
-				fr1.dtime = datetimed
 				fr1.originaldt = vtemp[recoffset.dtime_start:recoffset.dtime_end]
 				fr1.duration, _ = strconv.Atoi(strings.TrimSpace(vtemp[recoffset.duration_start:recoffset.duration_end]))
 				fr1.calling_number = strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])
