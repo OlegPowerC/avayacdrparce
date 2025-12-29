@@ -3,11 +3,11 @@ import keyring
 import argparse
 
 if __name__ == '__main__':
-    parcer = argparse.ArgumentParser(description="Set passord in Keyring")
-    parcer.add_argument('-u', type=str, help="User name", required=True)
-    parcer.add_argument('-p', type=str, help="Password",required=True)
-    parcer.add_argument('-k', type=str, help="KeyChainName", required=True)
-    args = parcer.parse_args()
+    parser = argparse.ArgumentParser(description="Set passord in Keyring")
+    parser.add_argument('-u', type=str, help="User name", required=True)
+    parser.add_argument('-p', type=str, help="Password",required=True)
+    parser.add_argument('-k', type=str, help="KeyChainName", required=True)
+    args = parser.parse_args()
     if len(args.u) < 4:
         print("Too short username")
         exit(1)

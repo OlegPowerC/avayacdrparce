@@ -42,7 +42,6 @@
     {"dburl":"127.0.0.1:3306",
      "dbname":"avaya",
      "dbuser":"avaya",
-     "calltable":"calls",
      "debugmode":0,
      "smsurl":"http://127.0.0.1/sendsms.php",
      "company":"PowerC",
