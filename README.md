@@ -89,12 +89,15 @@ change system-parameters cdr
 **status cdr-link**
 
 ### Установка
+
     cd /opt
     git clone https://github.com/OlegPowerC/avayacdrparce.git
     cd avayacdrparce
+    go build .
     chmod +x getuser.py
     chmod +x deleteuser.py
     chmod +x adduser.py
+
 ### Запуск как systemd сервис
 
 Для безопасности имеет смысл не запускать сервис под пользователем **root**
@@ -111,13 +114,13 @@ change system-parameters cdr
 
 Задайте права на директорию **/opt/avayacdrparce**
     
-    chown -R avayacdr:avayacdr /opt/avayacdr
-    chmod 755 /opt/avayacdr
-    chmod 755 /opt/avayacdr/avayacdr
-    chmod 755 /opt/avayacdr/adduser.py
-    chmod 755 /opt/avayacdr/deleteuser.py
-    chmod 700 /opt/avayacdr/getuser.py
-    chmod 660 /opt/avayacdr/params.json
+    chown -R avayacdr:avayacdr /opt/avayacdrparce
+    chmod 755 /opt/avayacdrparce
+    chmod 755 /opt/avayacdrparce/avayacdr
+    chmod 755 /opt/avayacdrparce/adduser.py
+    chmod 755 /opt/avayacdrparce/deleteuser.py
+    chmod 700 /opt/avayacdrparce/getuser.py
+    chmod 660 /opt/avayacdrparce/params.json
 
 Задайте пароль на базу данных в keychain
 
