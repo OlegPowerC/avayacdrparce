@@ -4,7 +4,7 @@ After=network.target
 After=mysql.service
 
 [Service]
-Type=notify
+Type=simple
 User=avayacdr
 Group=avayacdr
 WorkingDirectory=/opt/avayacdrparce
