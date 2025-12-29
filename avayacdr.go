@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"database/sql"
 	"encoding/json"
@@ -17,14 +18,19 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
+// В Go 01 - месяц с нулем впереди если одна цифра, то же самое 2 только дата а 06 год 2 цифры
 const AvayaDateFormat = "010206 1504"
 const AvayaMsgLen = 95
 
 type Server struct {
 	Addr string
+	wg   *sync.WaitGroup
+	quit chan struct{}
 }
 
 type Conn struct {
@@ -69,6 +75,14 @@ type CDR_Record_offsett struct {
 	condition_code_end   int
 }
 
+func NewServer(addr string) *Server {
+	return &Server{
+		Addr: addr,
+		wg:   &sync.WaitGroup{},
+		quit: make(chan struct{}),
+	}
+}
+
 func sendsms(number string, extension string, calltime string, companyname string) {
 	if len(number) > 10 {
 		if ldebuggmode > 0 {
@@ -102,7 +116,7 @@ func sendsms(number string, extension string, calltime string, companyname strin
 		a31.Set("phone", pNum)
 		a31.Set("mpname", SMSText)
 		tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-		client := &http.Client{Transport: tr}
+		client := &http.Client{Transport: tr, Timeout: 10 * time.Second}
 		reqpr, _ := http.NewRequest("POST", SMSurl, strings.NewReader(a31.Encode()))
 		reqpr.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 		_, errpr := client.Do(reqpr)
@@ -121,110 +135,112 @@ func IsNumber(teststring string) bool {
 	return re.Match([]byte(strings.TrimSpace(teststring)))
 }
 
-func handle(conn net.Conn) error {
+func (srv *Server) handle(ctx context.Context, conn net.Conn) {
+	defer func() {
+		srv.wg.Done()
+		fmt.Println("Закрыто соединение:", conn.RemoteAddr())
+		conn.Close()
+	}()
+
 	Timelocation, Ltimeloc := time.LoadLocation(Timezone)
 	if Ltimeloc != nil {
 		fmt.Println(Ltimeloc)
 		Timelocation = time.UTC
 	}
-	defer func() {
-		fmt.Println("Закрыто соединение:", conn.RemoteAddr())
-		conn.Close()
-	}()
 
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
 	scanr := bufio.NewScanner(r)
 
-	for {
-		scanned := scanr.Scan()
-		if !scanned {
-			if err := scanr.Err(); err != nil {
-				fmt.Println(err, conn.RemoteAddr())
-				return err
-			}
-			break
-		}
-
-		vtems := scanr.Text()
-
-		var vtemp string
-		if len(vtems) >= AvayaMsgLen {
-			//if  IsNumber(vtemp[recoffset.calling_number_start:recoffset.calling_number_end]) && IsNumber(vtemp[recoffset.called_number_start:recoffset.called_number_end]) {
-			if len(vtems) > AvayaMsgLen {
-				vtemp = vtems[len(vtems)-AvayaMsgLen:]
-			} else {
-				vtemp = vtems
-			}
-			if IsNumber(strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])) && IsNumber(strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])) {
-				if ldebuggmode > 0 {
-					fmt.Println(vtems)
-				}
-				var fr1 CDR_Record_1
-
-				strdatef := vtemp[recoffset.dtime_start:recoffset.dtime_end]
-
-				datetimed, parseerr := time.ParseInLocation(AvayaDateFormat, strdatef, Timelocation)
-				if parseerr != nil {
-					fmt.Println(parseerr)
-					fr1.dtime = time.Now().In(Timelocation)
-				} else {
-					fr1.dtime = datetimed
-				}
-
-				fr1.originaldt = vtemp[recoffset.dtime_start:recoffset.dtime_end]
-				fr1.duration, _ = strconv.Atoi(strings.TrimSpace(vtemp[recoffset.duration_start:recoffset.duration_end]))
-				fr1.calling_number = strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])
-				fr1.called_number = strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])
-				fr1.condition_code = strings.TrimSpace(vtemp[recoffset.condition_code_start:recoffset.condition_code_end])
-
-				if ldebuggmode > 0 {
-					fmt.Println("Condition code:", fr1.condition_code)
-					fmt.Println("Test slice", vtemp[93:94])
-				}
-
-				//udt := fr1.dtime.Unix()
-				//sut := strconv.FormatInt(udt, 10)
-				//qstr := fmt.Sprintf("INSERT INTO powerccdr(tm,originaldt,duration,called,calling,cond) VALUES (FROM_UNIXTIME(%s),%s,%s,\"%s\",\"%s\",\"%s\")", sut, fr1.originaldt, strconv.Itoa(fr1.duration), fr1.called_number, fr1.calling_number, fr1.condition_code)
-
-				stmt, err := db.Prepare(`
+	stmt, err := db.Prepare(`
 					INSERT INTO powerccdr(tm, originaldt, duration, called, calling, cond) 
 					VALUES (FROM_UNIXTIME(?), ?, ?, ?, ?, ?)
 				`)
-				if err != nil {
-					fmt.Println("Ошибка подготовки запроса:", err)
-					continue
-				}
-
-				_, err = stmt.Exec(
-					fr1.dtime.Unix(),   // UNIX timestamp
-					fr1.originaldt,     // оригинальная строка даты
-					fr1.duration,       // длительность
-					fr1.called_number,  // вызываемый номер
-					fr1.calling_number, // вызывающий номер
-					fr1.condition_code, // код состояния
-				)
-				stmt.Close()
-
-				if err != nil {
-					fmt.Println("Ошибка выполнения INSERT:", err)
-					continue
-				}
-
-				DateStr := fmt.Sprintf("%s-%s-%s %sч. %sмин.", vtemp[recoffset.dtime_start:recoffset.dtime_start+2],
-					vtemp[recoffset.dtime_start+2:recoffset.dtime_start+4],
-					vtemp[recoffset.dtime_start+4:recoffset.dtime_start+6],
-					vtemp[recoffset.dtime_start+7:recoffset.dtime_start+9],
-					vtemp[recoffset.dtime_start+9:recoffset.dtime_start+11])
-				go sendsms(fr1.called_number, fr1.calling_number, DateStr, comname)
-			}
-		}
-		w.Flush()
+	if err != nil {
+		fmt.Println("Ошибка подготовки запроса:", err)
+		return
 	}
-	return nil
+	defer stmt.Close()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			scanned := scanr.Scan()
+			if !scanned {
+				if err := scanr.Err(); err != nil {
+					fmt.Println(err, conn.RemoteAddr())
+					return
+				}
+				return
+			}
+
+			vtems := scanr.Text()
+
+			var vtemp string
+			if len(vtems) >= AvayaMsgLen {
+				//if  IsNumber(vtemp[recoffset.calling_number_start:recoffset.calling_number_end]) && IsNumber(vtemp[recoffset.called_number_start:recoffset.called_number_end]) {
+				if len(vtems) > AvayaMsgLen {
+					vtemp = vtems[len(vtems)-AvayaMsgLen:]
+				} else {
+					vtemp = vtems
+				}
+				if IsNumber(strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])) && IsNumber(strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])) {
+					if ldebuggmode > 0 {
+						fmt.Println(vtems)
+					}
+					var fr1 CDR_Record_1
+
+					strdatef := vtemp[recoffset.dtime_start:recoffset.dtime_end]
+
+					datetimed, parseerr := time.ParseInLocation(AvayaDateFormat, strdatef, Timelocation)
+					if parseerr != nil {
+						fmt.Println(parseerr)
+						fr1.dtime = time.Now().In(Timelocation)
+					} else {
+						fr1.dtime = datetimed
+					}
+
+					fr1.originaldt = vtemp[recoffset.dtime_start:recoffset.dtime_end]
+					fr1.duration, _ = strconv.Atoi(strings.TrimSpace(vtemp[recoffset.duration_start:recoffset.duration_end]))
+					fr1.calling_number = strings.TrimSpace(vtemp[recoffset.calling_number_start:recoffset.calling_number_end])
+					fr1.called_number = strings.TrimSpace(vtemp[recoffset.called_number_start:recoffset.called_number_end])
+					fr1.condition_code = strings.TrimSpace(vtemp[recoffset.condition_code_start:recoffset.condition_code_end])
+
+					if ldebuggmode > 0 {
+						fmt.Println("Condition code:", fr1.condition_code)
+						fmt.Println("Test slice", vtemp[93:94])
+					}
+
+					_, err = stmt.Exec(
+						fr1.dtime.Unix(),   // UNIX timestamp
+						fr1.originaldt,     // оригинальная строка даты
+						fr1.duration,       // длительность
+						fr1.called_number,  // вызываемый номер
+						fr1.calling_number, // вызывающий номер
+						fr1.condition_code, // код состояния
+					)
+
+					if err != nil {
+						fmt.Println("Ошибка выполнения INSERT:", err)
+						continue
+					}
+
+					DateStr := fmt.Sprintf("%s-%s-%s %sч. %sмин.", vtemp[recoffset.dtime_start:recoffset.dtime_start+2],
+						vtemp[recoffset.dtime_start+2:recoffset.dtime_start+4],
+						vtemp[recoffset.dtime_start+4:recoffset.dtime_start+6],
+						vtemp[recoffset.dtime_start+7:recoffset.dtime_start+9],
+						vtemp[recoffset.dtime_start+9:recoffset.dtime_start+11])
+					go sendsms(fr1.called_number, fr1.calling_number, DateStr, comname)
+				}
+			}
+			w.Flush()
+		}
+	}
 }
 
-func (srv Server) ListenAndServe() error {
+func (srv *Server) ListenAndServe(ctx context.Context) error {
 	addr := srv.Addr
 	if addr == "" {
 		addr = ":5001"
@@ -235,15 +251,32 @@ func (srv Server) ListenAndServe() error {
 		fmt.Println("Ошибка:", err)
 		return err
 	}
-	defer listener.Close()
+	go func() {
+		<-ctx.Done()
+		listener.Close() // Разблокирует Accept()
+	}()
+
 	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Ошибка подключения:", err)
-			continue
+		select {
+		case <-ctx.Done():
+			srv.wg.Wait()
+			return ctx.Err()
+		default:
+			conn, err := listener.Accept()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					srv.wg.Wait()
+					return ctx.Err()
+				default:
+					fmt.Println("Ошибка подключения:", err)
+					continue
+				}
+			}
+			fmt.Println("PowerCCDR подключение:", conn.RemoteAddr())
+			srv.wg.Add(1)
+			go srv.handle(ctx, conn)
 		}
-		fmt.Println("PowerCCDR подключение:", conn.RemoteAddr())
-		handle(conn)
 	}
 }
 
@@ -310,16 +343,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs)
-	//Автономная функция для обработки сигналов ОС
-	go func() {
-		s := <-sigs
-		fmt.Println("Принят сигнал ОС:", s)
-		db.Close()
-		os.Exit(1)
-	}()
-
 	//Создаем строку для соединения с базой данных
 	DsToLog := fmt.Sprintf("%s@tcp(%s)/%s", JParams.Databaseuser, JParams.Databaseurl, JParams.Databasename)
 	DsStr := fmt.Sprintf("%s:%s@tcp(%s)/%s", JParams.Databaseuser, databasepassword, JParams.Databaseurl, JParams.Databasename)
@@ -338,6 +361,10 @@ func main() {
 		panic(errsql.Error())
 	}
 	fmt.Println("Старт CDR сервиса")
-	s1 := Server{":5001"}
-	s1.ListenAndServe()
+	s1 := NewServer(":5001")
+
+	//Ждем сигнал и завершаем все потоки
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
+	defer stop()
+	s1.ListenAndServe(ctx)
 }

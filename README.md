@@ -7,7 +7,7 @@
 Так же необходим python3 и pip
 Если pip не установлен его можно поставить например так:
 ***python3 -m ensurepip --upgrade***
-Теперь наду установить бибилиотеку keyring
+Теперь надо установить библиотеку keyring
 ***pip3 install keyring***
 
 В случае если при создании пользователя получаете ошибку ***No recommended backend was available***
@@ -18,18 +18,23 @@
 
 **adduser.py** - Добавление пользователя и пароля в keychain.
 
-**deleteuser.py** - Удаление пользователя из kaychain.
+**deleteuser.py** - Удаление пользователя из keychain.
 
 #### Файл настройки
 
 **params.json** - Необходимо указать адрес сервера MySQL, имя базы данных, имя пользователя
 Параметры
-dburl     - адрес сервера базы данных (IP:порт)
-dbname    - имя базы данных
-dbuser    - имя пользователя базы данных
-calltable - имя таблицы с логом вызовов
-debugmode - режим отладки (0 выключен, больще 0 включен)
-smsurl    - адрес сервера отправки SMS о вызове на номер содержащиеся в таблице ***smsto***
+
+| Параметр  | Описание                                                                                |
+|-----------|-----------------------------------------------------------------------------------------|
+| dburl     | адрес сервера базы данных (IP:порт)                                                     |
+| dbname    | имя базы данных                                                                         |
+| dbuser    | имя пользователя базы данных                                                            |
+| calltable | имя таблицы с логом вызовов                                                             |
+| debugmode | режим отладки (0 выключен, больше 0 включен)                                            |
+| smsurl    | адрес сервера отправки SMS о вызове на номер содержащийся в таблице ***smsto***         |
+| company   | Название организации (для указания в тексте в SMS)                                      |
+| location  | Часовой пояс (например "Europe/Moscow"), если не указан то по умолчанию "Europe/Moscow" |
 
 Пример:
 
@@ -38,16 +43,18 @@ smsurl    - адрес сервера отправки SMS о вызове на 
      "dbuser":"avaya",
      "calltable":"calls",
      "debugmode":0,
-     "smsurl":"http://127.0.0.1/sendsms.php","company":"PowerC"
+     "smsurl":"http://127.0.0.1/sendsms.php",
+     "company":"PowerC",
+     "location":"Europe/Moscow"
     }
 
 Настройка станции:
 change system-parameters cdr
-На первой вкладке обязательно укажите формат даты: **day/month** и primary output format **customized**
+На первой вкладке обязательно укажите формат даты: **month/day** и primary output format **customized**
 ![avayacdrsettings1.JPG](avayacdrsettings1.JPG)
 На второй настройте формат таким образом:
 
-| Data item   | Lenght |
+| Data item   | Length |
 |-------------|--------|
 | Date        | 6      |
 | space       | 1      |
@@ -79,4 +86,13 @@ change system-parameters cdr
 ![avayacdrsettings.JPG](avayacdrsettings.JPG)
 Просмотр состояния подключения со стороны станции:
 в SAT:
-status cdr-link
+**status cdr-link**
+
+### Установка
+
+    git clone https://github.com/OlegPowerC/avayacdrparce.git
+    cd avayacdrparce
+    chmod +x getuser.py
+    chmod +x deleteuser.py
+    chmod +x adduser.py
+    
