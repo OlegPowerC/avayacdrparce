@@ -1,3 +1,4 @@
+[![Go](https://img.shields.io/badge/go-%3E%3D1.21-blue.svg)](https://pkg.go.dev/github.com/OlegPowerC/avayacdrparce)
 [![Go Report Card](https://goreportcard.com/badge/github.com/OlegPowerC/avayacdrparce)](https://goreportcard.com/report/github.com/OlegPowerC/avayacdrparce)
 
 ### Сборщик Avaya CDR (логов звонков) с сохранением их в базу данных MySQL.
