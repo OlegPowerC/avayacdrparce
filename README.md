@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/OlegPowerC/avayacdrparce)](https://goreportcard.com/report/github.com/OlegPowerC/avayacdrparce)
+
 ### Сборщик Avaya CDR (логов звонков) с сохранением их в базу данных MySQL.
 
 Пароль на базу данных хранится в linux ***gnome-keyring***
