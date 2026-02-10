@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS powerccdr (  id MEDIUMINT NOT NULL AUTO_INCREMENT,
-                                        tm TIMESTAMP NOT NULL, originaldt varchar(255) DEFAULT NULL,
+                                        tm TIMESTAMP NOT NULL,
+                                        originaldt varchar(255) DEFAULT NULL,
                                         duration int(11) DEFAULT 0,
                                         called varchar(255) DEFAULT NULL,
                                         calling varchar(255) DEFAULT NULL,
